@@ -19,12 +19,11 @@ class RegressionGD:
         Side Effects:
         Initializes weights and bias, preprocesses the training data, and sets up internal parameters for tracking progress.
         """
-        self.x_train = x_train
         self.y_train = y_train
         self.num_iter = num_iter
         self.alpha = alpha
         self.b = np.mean(y_train)
-        self.x_train = self._preprocess_data()
+        self.x_train = self._preprocess_data(x_train)
         self.w = np.random.rand(self.x_train.shape[1]) * 0.01
         self.n = len(self.x_train)
         if self.n == 0:
@@ -32,7 +31,7 @@ class RegressionGD:
         if self.x_train.shape[1] == 0:
             raise ValueError("No features to train on after preprocessing.")
 
-    def _preprocess_data(self):
+    def _preprocess_data(self, x: pd.DataFrame):
         """
         Preprocesses the training data by detecting categorical variables, applying one-hot encoding,
         and performing z-score normalization on all features.
@@ -41,17 +40,18 @@ class RegressionGD:
             pd.DataFrame: The preprocessed and normalized training data, ready for gradient descent.
 
         """
-        categorical_cols = self.x_train.select_dtypes(include=['object']).columns
+        categorical_cols = x.select_dtypes(include=['object']).columns
+        numerical_cols = x.select_dtypes(include=[np.number]).columns
+        normalized_data = self._zscore_normalization(x[numerical_cols])
+        x.loc[:, numerical_cols] = normalized_data
         if len(categorical_cols) == 0:
-            return self.x_train
-        numerical_cols = self.x_train.select_dtypes(include=[np.number]).columns
-        encoder = OneHotEncoder(sparse=False, drop='first')
-        encoded_cats = encoder.fit_transform(self.x_train[categorical_cols])
+            return x
+        encoder = OneHotEncoder(sparse_output=False, drop='first')
+        encoded_cats = encoder.fit_transform(x[categorical_cols])
         encoded_cats_df = pd.DataFrame(encoded_cats, 
-                                        columns=encoder.get_feature_names(categorical_cols),
-                                        index=self.x_train.index)
-        self.x_train[numerical_cols] = self._zscore_normalization(self.x_train[numerical_cols])
-        x_processed = pd.concat([self.x_train[numerical_cols], encoded_cats_df], axis=1)
+                                        columns=encoder.get_feature_names_out(categorical_cols),
+                                        index=x.index)
+        x_processed = pd.concat([x[numerical_cols], encoded_cats_df], axis=1)
         return x_processed
     
     def _cost_fun(self):
@@ -104,11 +104,17 @@ class RegressionGD:
         for i in range(self.num_iter):
             self._cost_fun()
             self._gradient()
-            if np.allclose(self.dj_dw, atol=1e-6) and np.allclose(self.dj_db, atol=1e-6):
+            if np.allclose(self.dj_dw, 0, atol=1e-6) and np.allclose(self.dj_db, 0, atol=1e-6):
                 print(f"Convergence at iteration {i:5}")
                 break
             self.w -= self.alpha * self.dj_dw
             self.b -= self.alpha * self.dj_db
             if i % (self.num_iter // 10) == 0 or i == self.num_iter - 1:
                 print(f"Iteration {i:5}: Cost {self.cost}")
+        print(f"Final value of w is {self.w} and b is {self.b}")
         return self.w, self.b
+    
+    def predict(self, x_test):
+        x_test_pre = self._preprocess_data(x_test)
+        y_hat = x_test_pre.dot(self.w) + self.b
+        return y_hat
